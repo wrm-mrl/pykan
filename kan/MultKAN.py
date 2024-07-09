@@ -76,10 +76,6 @@ class MultKAN(nn.Module):
         self.subnode_bias = []
         self.subnode_scale = []
         
-        globals()['self.node_bias_0'] = torch.nn.Parameter(torch.zeros(3,1)).requires_grad_(False)
-        #self.node_bias_0 = torch.nn.Parameter(torch.zeros(3,1)).requires_grad_(False)
-        exec('self.node_bias_0' + " = torch.nn.Parameter(torch.zeros(3,1)).requires_grad_(False)")
-        
         for l in range(self.depth):
             exec(f'self.node_bias_{l} = torch.nn.Parameter(torch.zeros(width_in[l+1],)).requires_grad_(affine_trainable).to(device)')
             exec(f'self.node_scale_{l} = torch.nn.Parameter(torch.ones(width_in[l+1],)).requires_grad_(affine_trainable).to(device)')
@@ -711,126 +707,126 @@ class MultKAN(nn.Module):
         if title != None:
             plt.gcf().get_axes()[0].text(0.5, (y0+z0) * (len(self.width) - 1) + 0.3, title, fontsize=40 * scale, horizontalalignment='center', verticalalignment='center')
 
-    def train(self, dataset, opt="LBFGS", steps=100, log=1, lamb=0., lamb_l1=1., lamb_entropy=2., lamb_coef=0., lamb_coefdiff=0., update_grid=True, grid_update_num=10, loss_fn=None, lr=1.,start_grid_update_step=0, stop_grid_update_step=50, batch=-1,
-              small_mag_threshold=1e-16, small_reg_factor=1., metrics=None, save_fig=False, in_vars=None, out_vars=None, beta=3, save_fig_freq=1, img_folder='./video', device='cpu', singularity_avoiding=False, y_th=10.):
+    # def train(self, dataset, opt="LBFGS", steps=100, log=1, lamb=0., lamb_l1=1., lamb_entropy=2., lamb_coef=0., lamb_coefdiff=0., update_grid=True, grid_update_num=10, loss_fn=None, lr=1.,start_grid_update_step=0, stop_grid_update_step=50, batch=-1,
+    #           small_mag_threshold=1e-16, small_reg_factor=1., metrics=None, save_fig=False, in_vars=None, out_vars=None, beta=3, save_fig_freq=1, img_folder='./video', device='cpu', singularity_avoiding=False, y_th=10.):
 
-        if lamb > 0. and not self.save_plot_data:
-            print('setting lamb=0. If you want to set lamb > 0, set self.save_plot_data=True')
+    #     if lamb > 0. and not self.save_plot_data:
+    #         print('setting lamb=0. If you want to set lamb > 0, set self.save_plot_data=True')
         
-        def reg(acts_scale):
+    #     def reg(acts_scale):
 
-            reg_ = 0.
-            for i in range(len(acts_scale)):
-                vec = acts_scale[i]#.reshape(-1, )
+    #         reg_ = 0.
+    #         for i in range(len(acts_scale)):
+    #             vec = acts_scale[i]#.reshape(-1, )
 
-                l1 = torch.sum(vec)
-                p_row = vec / (torch.sum(vec, dim=1, keepdim=True) + 1e-4)
-                p_col = vec / (torch.sum(vec, dim=0, keepdim=True) + 1e-4)
-                entropy_row = - torch.mean(torch.sum(p_row * torch.log2(p_row + 1e-4), dim=1))
-                entropy_col = - torch.mean(torch.sum(p_col * torch.log2(p_col + 1e-4), dim=0))
-                reg_ += lamb_l1 * l1 + lamb_entropy * (entropy_row + entropy_col)  # both l1 and entropy
+    #             l1 = torch.sum(vec)
+    #             p_row = vec / (torch.sum(vec, dim=1, keepdim=True) + 1e-4)
+    #             p_col = vec / (torch.sum(vec, dim=0, keepdim=True) + 1e-4)
+    #             entropy_row = - torch.mean(torch.sum(p_row * torch.log2(p_row + 1e-4), dim=1))
+    #             entropy_col = - torch.mean(torch.sum(p_col * torch.log2(p_col + 1e-4), dim=0))
+    #             reg_ += lamb_l1 * l1 + lamb_entropy * (entropy_row + entropy_col)  # both l1 and entropy
 
-            # regularize coefficient to encourage spline to be zero
-            for i in range(len(self.act_fun)):
-                coeff_l1 = torch.sum(torch.mean(torch.abs(self.act_fun[i].coef), dim=1))
-                coeff_diff_l1 = torch.sum(torch.mean(torch.abs(torch.diff(self.act_fun[i].coef)), dim=1))
-                reg_ += lamb_coef * coeff_l1 + lamb_coefdiff * coeff_diff_l1
+    #         # regularize coefficient to encourage spline to be zero
+    #         for i in range(len(self.act_fun)):
+    #             coeff_l1 = torch.sum(torch.mean(torch.abs(self.act_fun[i].coef), dim=1))
+    #             coeff_diff_l1 = torch.sum(torch.mean(torch.abs(torch.diff(self.act_fun[i].coef)), dim=1))
+    #             reg_ += lamb_coef * coeff_l1 + lamb_coefdiff * coeff_diff_l1
 
-            return reg_
+    #         return reg_
 
-        pbar = tqdm(range(steps), desc='description', ncols=100)
+    #     pbar = tqdm(range(steps), desc='description', ncols=100)
 
-        if loss_fn == None:
-            loss_fn = loss_fn_eval = lambda x, y: torch.mean((x - y) ** 2)
-        else:
-            loss_fn = loss_fn_eval = loss_fn
+    #     if loss_fn == None:
+    #         loss_fn = loss_fn_eval = lambda x, y: torch.mean((x - y) ** 2)
+    #     else:
+    #         loss_fn = loss_fn_eval = loss_fn
 
-        grid_update_freq = int(stop_grid_update_step / grid_update_num)
+    #     grid_update_freq = int(stop_grid_update_step / grid_update_num)
 
-        if opt == "Adam":
-            optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-        elif opt == "LBFGS":
-            optimizer = LBFGS(self.parameters(), lr=lr, history_size=10, line_search_fn="strong_wolfe", tolerance_grad=1e-32, tolerance_change=1e-32, tolerance_ys=1e-32)
-            #optimizer = LBFGS(self.parameters(), lr=lr, history_size=10, tolerance_grad=1e-32, tolerance_change=1e-32, tolerance_ys=1e-32)
-            #optimizer = LBFGS(self.parameters(), lr=lr, history_size=10, debug=True)
+    #     if opt == "Adam":
+    #         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+    #     elif opt == "LBFGS":
+    #         optimizer = LBFGS(self.parameters(), lr=lr, history_size=10, line_search_fn="strong_wolfe", tolerance_grad=1e-32, tolerance_change=1e-32, tolerance_ys=1e-32)
+    #         #optimizer = LBFGS(self.parameters(), lr=lr, history_size=10, tolerance_grad=1e-32, tolerance_change=1e-32, tolerance_ys=1e-32)
+    #         #optimizer = LBFGS(self.parameters(), lr=lr, history_size=10, debug=True)
 
-        results = {}
-        results['train_loss'] = []
-        results['test_loss'] = []
-        results['reg'] = []
-        if metrics != None:
-            for i in range(len(metrics)):
-                results[metrics[i].__name__] = []
+    #     results = {}
+    #     results['train_loss'] = []
+    #     results['test_loss'] = []
+    #     results['reg'] = []
+    #     if metrics != None:
+    #         for i in range(len(metrics)):
+    #             results[metrics[i].__name__] = []
 
-        if batch == -1 or batch > dataset['train_input'].shape[0]:
-            batch_size = dataset['train_input'].shape[0]
-            batch_size_test = dataset['test_input'].shape[0]
-        else:
-            batch_size = batch
-            batch_size_test = batch
+    #     if batch == -1 or batch > dataset['train_input'].shape[0]:
+    #         batch_size = dataset['train_input'].shape[0]
+    #         batch_size_test = dataset['test_input'].shape[0]
+    #     else:
+    #         batch_size = batch
+    #         batch_size_test = batch
 
-        global train_loss, reg_
+    #     global train_loss, reg_
 
-        def closure():
-            global train_loss, reg_
-            optimizer.zero_grad()
-            pred = self.forward(dataset['train_input'][train_id].to(device), singularity_avoiding=singularity_avoiding, y_th=y_th)
-            train_loss = loss_fn(pred, dataset['train_label'][train_id].to(device))
-            if self.save_plot_data:
-                reg_ = reg(self.acts_scale_spline)
-            else:
-                reg_ = torch.tensor(0.)
-            objective = train_loss + lamb * reg_
-            objective.backward()
-            return objective
+    #     def closure():
+    #         global train_loss, reg_
+    #         optimizer.zero_grad()
+    #         pred = self.forward(dataset['train_input'][train_id].to(device), singularity_avoiding=singularity_avoiding, y_th=y_th)
+    #         train_loss = loss_fn(pred, dataset['train_label'][train_id].to(device))
+    #         if self.save_plot_data:
+    #             reg_ = reg(self.acts_scale_spline)
+    #         else:
+    #             reg_ = torch.tensor(0.)
+    #         objective = train_loss + lamb * reg_
+    #         objective.backward()
+    #         return objective
 
-        if save_fig:
-            if not os.path.exists(img_folder):
-                os.makedirs(img_folder)
+    #     if save_fig:
+    #         if not os.path.exists(img_folder):
+    #             os.makedirs(img_folder)
 
-        for _ in pbar:
+    #     for _ in pbar:
 
-            train_id = np.random.choice(dataset['train_input'].shape[0], batch_size, replace=False)
-            test_id = np.random.choice(dataset['test_input'].shape[0], batch_size_test, replace=False)
+    #         train_id = np.random.choice(dataset['train_input'].shape[0], batch_size, replace=False)
+    #         test_id = np.random.choice(dataset['test_input'].shape[0], batch_size_test, replace=False)
 
-            if _ % grid_update_freq == 0 and _ < stop_grid_update_step and update_grid and _ > start_grid_update_step:
-                self.update_grid_from_samples(dataset['train_input'][train_id].to(device))
+    #         if _ % grid_update_freq == 0 and _ < stop_grid_update_step and update_grid and _ > start_grid_update_step:
+    #             self.update_grid_from_samples(dataset['train_input'][train_id].to(device))
 
-            if opt == "LBFGS":
-                optimizer.step(closure)
+    #         if opt == "LBFGS":
+    #             optimizer.step(closure)
 
-            if opt == "Adam":
-                pred = self.forward(dataset['train_input'][train_id].to(device), singularity_avoiding=singularity_avoiding, y_th=y_th)
-                train_loss = loss_fn(pred, dataset['train_label'][train_id].to(device))
-                if self.save_plot_data:
-                    reg_ = reg(self.acts_scale_spline)
-                else:
-                    reg_ = torch.tensor(0.)
-                loss = train_loss + lamb * reg_
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+    #         if opt == "Adam":
+    #             pred = self.forward(dataset['train_input'][train_id].to(device), singularity_avoiding=singularity_avoiding, y_th=y_th)
+    #             train_loss = loss_fn(pred, dataset['train_label'][train_id].to(device))
+    #             if self.save_plot_data:
+    #                 reg_ = reg(self.acts_scale_spline)
+    #             else:
+    #                 reg_ = torch.tensor(0.)
+    #             loss = train_loss + lamb * reg_
+    #             optimizer.zero_grad()
+    #             loss.backward()
+    #             optimizer.step()
 
-            test_loss = loss_fn_eval(self.forward(dataset['test_input'][test_id].to(device)), dataset['test_label'][test_id].to(device))
+    #         test_loss = loss_fn_eval(self.forward(dataset['test_input'][test_id].to(device)), dataset['test_label'][test_id].to(device))
 
-            if _ % log == 0:
-                pbar.set_description("train loss: %.2e | test loss: %.2e | reg: %.2e " % (torch.sqrt(train_loss).cpu().detach().numpy(), torch.sqrt(test_loss).cpu().detach().numpy(), reg_.cpu().detach().numpy()))
+    #         if _ % log == 0:
+    #             pbar.set_description("train loss: %.2e | test loss: %.2e | reg: %.2e " % (torch.sqrt(train_loss).cpu().detach().numpy(), torch.sqrt(test_loss).cpu().detach().numpy(), reg_.cpu().detach().numpy()))
 
-            if metrics != None:
-                for i in range(len(metrics)):
-                    results[metrics[i].__name__].append(metrics[i]().item())
+    #         if metrics != None:
+    #             for i in range(len(metrics)):
+    #                 results[metrics[i].__name__].append(metrics[i]().item())
 
-            results['train_loss'].append(torch.sqrt(train_loss).cpu().detach().numpy())
-            results['test_loss'].append(torch.sqrt(test_loss).cpu().detach().numpy())
-            results['reg'].append(reg_.cpu().detach().numpy())
+    #         results['train_loss'].append(torch.sqrt(train_loss).cpu().detach().numpy())
+    #         results['test_loss'].append(torch.sqrt(test_loss).cpu().detach().numpy())
+    #         results['reg'].append(reg_.cpu().detach().numpy())
 
-            if save_fig and _ % save_fig_freq == 0:
-                self.plot(folder=img_folder, in_vars=in_vars, out_vars=out_vars, title="Step {}".format(_), beta=beta)
-                plt.savefig(img_folder + '/' + str(_) + '.jpg', bbox_inches='tight', dpi=200)
-                plt.close()
+    #         if save_fig and _ % save_fig_freq == 0:
+    #             self.plot(folder=img_folder, in_vars=in_vars, out_vars=out_vars, title="Step {}".format(_), beta=beta)
+    #             plt.savefig(img_folder + '/' + str(_) + '.jpg', bbox_inches='tight', dpi=200)
+    #             plt.close()
 
-        self.log_history('train')
-        return results
+    #     self.log_history('train')
+    #     return results
 
     def prune_node(self, threshold=1e-2, mode="auto", active_neurons_id=None, log_history=True):
 

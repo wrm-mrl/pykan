@@ -128,7 +128,7 @@ class KANLayer(nn.Module):
             mask = sparse_mask(in_dim, out_dim)
         else:
             mask = 1.
-        self.scale_base = torch.nn.Parameter(torch.ones(in_dim, out_dim, device=device) * scale_base * mask).requires_grad_(sb_trainable)  # make scale trainable
+        self.scale_base = torch.nn.Parameter(torch.ones(in_dim, out_dim, device=device) * scale_base.to(device) * mask).requires_grad_(sb_trainable)  # make scale trainable
         #else:
         #self.scale_base = torch.nn.Parameter(scale_base.to(device)).requires_grad_(sb_trainable)
         self.scale_sp = torch.nn.Parameter(torch.ones(in_dim, out_dim, device=device) * scale_sp * mask).requires_grad_(sp_trainable)  # make scale trainable
